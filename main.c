@@ -115,32 +115,33 @@ size_t find_optimal_space(blocks_t blocks, size_t levels) {
 
 
 void* allocate(blocks_t* blocks, size_t size) {
-    size_t required_blocks = round_up_to_next_power_of_two(ceil_divide(size, BLOCK_SIZE));
-    size_t levels = used_bits(required_blocks);
+    size_t min_blocks_required = ceil_divide(size, BLOCK_SIZE);
+    size_t blocks_required = round_up_to_next_power_of_two(min_blocks_required);
+    size_t levels = used_bits(blocks_required);
     size_t index = find_optimal_space(*blocks, levels);
-    printf("allocating %zu at index %zu\n", required_blocks, index);
+    printf("allocating %zu at index %zu\n", blocks_required, index);
     if (index == (size_t)-1) {
         return NULL;
     }
 
-    blocks_t mask = ((1 << required_blocks) - 1) << index;
+    blocks_t mask = ((1 << min_blocks_required) - 1) << index;
     assert(((*blocks) & mask) == mask && "Not all blocks are free there");
     *blocks &= ~mask;
     
     unsigned char* ptr = memory + index * BLOCK_SIZE;
     #ifdef MEMORY_DEBUG
-    memset(ptr, UNUSED_MEMORY_VALUE, required_blocks * BLOCK_SIZE);
+    memset(ptr, UNUSED_MEMORY_VALUE, min_blocks_required * BLOCK_SIZE);
     #endif
     return ptr;
 }
 
 void free_memory(blocks_t* blocks, void* ptr, size_t size) {
-    size_t required_blocks = round_up_to_next_power_of_two(ceil_divide(size, BLOCK_SIZE));
+    size_t min_blocks_required = ceil_divide(size, BLOCK_SIZE);
     size_t index = ((char*)ptr - (char*)memory) / BLOCK_SIZE;
-    size_t mask = ((1 << required_blocks) - 1) << index;
+    size_t mask = ((1 << min_blocks_required) - 1) << index;
     #ifdef MEMORY_DEBUG
     assert(((*blocks) & mask) == 0 && "Memory with the same size isn't allocated at this address.");
-    size_t remaining_size = (required_blocks * BLOCK_SIZE) - size;
+    size_t remaining_size = (min_blocks_required * BLOCK_SIZE) - size;
      
     for (size_t i = 0; i < remaining_size; i++) {
         assert(((unsigned char*)ptr)[size + i] == UNUSED_MEMORY_VALUE && "Used invalid memory");
@@ -156,18 +157,25 @@ int main() {
     // blocks_t blocks = ~0x00F39000;
     // 00 00  00 00  11 11  00 11  10 01  00 00  00 00  00 00
     
+    printf("blocks: %08X\n", blocks);
     void* a = allocate(&blocks, 88);
     memset(a, 1, 88);
+    printf("blocks: %08X\n", blocks);
     void* b = allocate(&blocks, 124);
     memset(b, 2, 124);
+    printf("blocks: %08X\n", blocks);
     void* c = allocate(&blocks, 56);
     memset(c, 4, 56);
+    printf("blocks: %08X\n", blocks);
     void* d = allocate(&blocks, 104);
     memset(d, 3, 104);
+    printf("blocks: %08X\n", blocks);
     
     assert(allocate(&blocks, 102) == NULL);
     free_memory(&blocks, a, 88);
+    printf("blocks: %08X\n", blocks);
     
     allocate(&blocks, 8);
+    printf("blocks: %08X\n", blocks);
     return 0;
 }
