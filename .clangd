@@ -1,0 +1,20 @@
+If:
+    PathMatch: [
+        fixed_buddy_allocator\.h,
+    ]
+
+CompileFlags:
+    Add: [
+        -g,
+        -Wall,
+        -Wextra,
+        -Wpedantic,
+        -DFBA_IMPLEMENTATION,
+        -DFBA_DEBUG,
+        -xc
+    ]
+    Compiler: clang
+
+Diagnostics:
+    Includes:
+        AnalyzeAngledIncludes: true
