@@ -2,15 +2,6 @@
 #define FIXED_BUDDY_ALLOCATOR_H
 #include <stddef.h>
 
-#ifndef FBA_ASSERT
-#include <assert.h>
-#define FBA_ASSERT assert
-#endif // FBA_ASSERT
-
-#ifndef FBA_UNSUDED_MEMORY_VALUE
-#define FBA_UNUSED_MEMORY_VALUE 0xCD
-#endif // FBA_UNUSED_MEMORY_VALUE
-
 #ifndef FBA_BLOCK_SIZE
 #define FBA_BLOCK_SIZE 16
 #endif // FBA_BLOCK_SIZE
@@ -33,6 +24,14 @@ void fba_free(FixedBuddyAllocator* allocator, void* ptr, size_t size);
 #include <string.h>
 
 
+#ifndef FBA_ASSERT
+#include <assert.h>
+#define FBA_ASSERT assert
+#endif // FBA_ASSERT
+
+#ifndef FBA_UNSUDED_MEMORY_VALUE
+#define FBA_UNUSED_MEMORY_VALUE 0xCD
+#endif // FBA_UNUSED_MEMORY_VALUE
 
 static size_t _fba_ceil_divide(size_t a, size_t b) {
     return (a + b - 1) / b;

@@ -18,3 +18,29 @@ CompileFlags:
 Diagnostics:
     Includes:
         AnalyzeAngledIncludes: true
+
+
+---
+
+If:
+    PathMatch: [
+        free_list_allocator\.h,
+    ]
+
+CompileFlags:
+    Add: [
+        -g,
+        -Wall,
+        -Wextra,
+        -Wpedantic,
+        -DFLA_IMPLEMENTATION,
+        -DFLA_DEBUG,
+        -xc,
+        -std=c11
+    ]
+    Compiler: gcc 
+
+Diagnostics:
+    Includes:
+        AnalyzeAngledIncludes: true
+
