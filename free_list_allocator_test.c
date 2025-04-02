@@ -4,10 +4,8 @@
 #include "free_list_allocator.h"
 
 
+
 int main() {
-    printf("hello world\n");
-
-
     FreeListAllocator fla = fla_create(1024 * 1024);
     fla_dump_nodes(&fla);
     printf("------\n");
@@ -22,11 +20,13 @@ int main() {
     
     size_t count = 16;
     void** array = fla_allocate(&fla, count * sizeof(void*));
+    assert(array != NULL);
     fla_dump_nodes(&fla);
     printf("------\n");
 
     for (size_t i = 0; i < count; i++) {
         array[i] = fla_allocate(&fla, i * 16 + 8);
+        assert(array[i] != NULL);
     }
     fla_dump_nodes(&fla);
     printf("------\n");

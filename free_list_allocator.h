@@ -12,25 +12,32 @@ typedef struct FreeListNodeHead {
 typedef struct FreeListNodeTail {
     size_t size;
 } FreeListNodeTail;
+typedef struct FreeListFreeNode {
+    struct FreeListFreeNode* next;
+    struct FreeListFreeNode* prev;
+} FreeListFreeNode;
 
 typedef struct FreeListAllocator {
     void* memory;
     size_t max_size;
     size_t page_size;
     size_t size;
-    FreeListNodeHead* first_head;
+    FreeListFreeNode* first;
+    FreeListFreeNode* last;
 } FreeListAllocator;
+
 
 union _FlaRequiredAlignmentUnion {
     char head[alignof(FreeListNodeHead)];
     char tail[alignof(FreeListNodeTail)];
+    char node[alignof(FreeListFreeNode)];
 };
 
 // including zero
 #define FLA_IS_POWER_OF_TWO(num) ((num & (num - 1)) == 0)
 #define FLA_MIN_ALIGNMENT (sizeof(union _FlaRequiredAlignmentUnion))
 _Static_assert(FLA_IS_POWER_OF_TWO(FLA_MIN_ALIGNMENT), "Unable to fit alignment requiremenets");
-#define FLA_MIN_ALLOCATION FLA_MIN_ALIGNMENT
+#define FLA_MIN_ALLOCATION sizeof(FreeListFreeNode)
 
 FreeListAllocator fla_create(size_t max_size);
 
@@ -92,31 +99,102 @@ static size_t _fla_round_up_to(size_t num, size_t to) {
     size_t mask = to - 1;
     return (num + mask) & (~mask);
 }
+static FreeListNodeTail* _fla_get_node_tail(FreeListNodeHead* head) {
+    assert(head != NULL);
+    return (FreeListNodeTail*)((char*)head + sizeof(FreeListNodeHead) + head->size);
+}
+static FreeListNodeHead* _fla_get_free_node_head(FreeListFreeNode* node) {
+    assert(node != NULL);
+    return (FreeListNodeHead*)((char*)node - sizeof(FreeListNodeHead));
+}
+static FreeListFreeNode* _fla_get_free_node(FreeListNodeHead* head) {
+    assert(head != NULL);
+    assert(head->size >= sizeof(FreeListFreeNode));
+    return (FreeListFreeNode*)((char*)head + sizeof(FreeListNodeHead));
+}
+
+FreeListFreeNode* _fla_free_list_insert(FreeListAllocator* allocator, FreeListNodeHead* head) {
+    assert(allocator != NULL);
+    assert(head != NULL);
+    assert(head->is_free);
+    FreeListFreeNode* node = _fla_get_free_node(head);
+    node->next = allocator->first;
+    if (allocator->first) {
+        allocator->first->prev = node;
+    }
+    node->prev = NULL;
+    allocator->first = node;
+    if (allocator->last == NULL) {
+        allocator->last = node;
+    }
+    return node;
+}
+
+void _fla_free_list_remove(FreeListAllocator* allocator, FreeListFreeNode* node) {
+    assert(allocator != NULL);
+    assert(allocator->first != NULL);
+    assert(allocator->last != NULL);
+    assert(node != NULL);
+    if (allocator->first == node) {
+        assert(node->prev == NULL);
+        allocator->first = node->next;
+    }
+    else {
+        assert(node->prev != NULL);
+        node->prev->next = node->next;
+    }
+
+    if (allocator->last == node) {
+        assert(node->next == NULL);
+        allocator->last = node->prev;
+    }
+    else {
+        assert(node->next != NULL);
+        node->next->prev = node->prev;
+    }
+}
+
 
 static FreeListNodeHead* _fla_find_atleast_best_fit(FreeListAllocator* allocator, size_t size) {
-    FreeListNodeHead* current = _fla_get_first_head(allocator);
-    if (current == NULL) {
-        return NULL;
-    }
-    char* end = (char*)allocator->memory + allocator->size;
+    // FreeListNodeHead* current = _fla_get_first_head(allocator);
+    // if (current == NULL) {
+    //     return NULL;
+    // }
+    // char* end = (char*)allocator->memory + allocator->size;
+    // FreeListNodeHead* best = NULL;
+    // size_t best_size = 0;
+    // while (1) {
+    //     if (current->is_free && current->size >= size) {
+    //         if (current->size < best_size || best == NULL) {
+    //             best = current;
+    //             if (current->size == size) {
+    //                 break;
+    //             }
+    //         }
+    //     }
+    //     char* next_address = (char*)current + current->size + _FLA_NODE_MARGIN;
+    //     if (end <= next_address) {
+    //         break;
+    //     }
+    //     current = (FreeListNodeHead*)next_address;
+    // }
+    //
+    FreeListFreeNode* current = allocator->first;
     FreeListNodeHead* best = NULL;
     size_t best_size = 0;
-    while (1) {
-        if (current->is_free && current->size >= size) {
-            if (current->size < best_size || best == NULL) {
-                best = current;
-                if (current->size == size) {
-                    break;
-                }
-            }
+    while (current != NULL) {
+        FreeListNodeHead* head = _fla_get_free_node_head(current);
+        assert(head != NULL);
+        assert(head->is_free);
+        if (head->size > size && (best == NULL || best_size < head->size)) {
+            best_size = head->size;
+            best = head;
         }
-        char* next_address = (char*)current + current->size + _FLA_NODE_MARGIN;
-        if (end <= next_address) {
-            break;
+        else if (head->size == size) {
+            return head;
         }
-        current = (FreeListNodeHead*)next_address;
+        current = current->next;
     }
-
     return best;
 }
 
@@ -159,14 +237,13 @@ static FreeListNodeHead* _fla_request_more_memory(FreeListAllocator* allocator, 
         last->size = required_size - sizeof(FreeListNodeHead) - sizeof(FreeListNodeTail);
         tail->size = last->size;
     }
+    _fla_free_list_insert(allocator, last);
     return last;
 }
 
-FreeListNodeTail* _fla_get_node_tail(FreeListNodeHead* node) {
-    return (FreeListNodeTail*)((char*)node + sizeof(FreeListNodeHead) + node->size);
-}
-
 FreeListNodeHead* _fla_get_next_node_head(FreeListAllocator* allocator, FreeListNodeHead* head) {
+    assert(allocator != NULL);
+    assert(head != NULL);
     char* address = (char*)head + head->size + _FLA_NODE_MARGIN;
     if (address > (char*)allocator->memory + allocator->size) {
         return NULL;
@@ -186,17 +263,20 @@ FreeListNodeHead* _fla_get_previous_node_head(FreeListAllocator* allocator, Free
 void* _fla_get_memory_ptr(FreeListNodeHead* head) {
     return (char*)head + sizeof(FreeListNodeHead);
 }
-
 FreeListNodeHead* _fla_get_head_from_ptr(void* ptr) {
     return (FreeListNodeHead*)((char*)ptr - sizeof(FreeListNodeHead));
 }
-void _fla_new_node(void* start, size_t size, int is_free) {
+void _fla_new_node(FreeListAllocator* allocator, void* start, size_t size, int is_free) {
     FreeListNodeHead* head = start;
     head->size = size;
     head->is_free = is_free;
     FreeListNodeTail* tail = _fla_get_node_tail(head);
     tail->size = size;
+    if (is_free) {
+        _fla_free_list_insert(allocator, head);
+    }
 }
+
 
 FreeListAllocator fla_create(size_t max_size) {
     assert(max_size > 0);
@@ -207,6 +287,8 @@ FreeListAllocator fla_create(size_t max_size) {
         .max_size = max_size,
         .page_size = _fla_get_page_size(),
         .size = 0,
+        .first = NULL,
+        .last = NULL
     };
 }
 
@@ -216,27 +298,32 @@ void* fla_allocate(FreeListAllocator* allocator, size_t size) {
         return NULL;
     }
     size = _fla_round_up_to(size, FLA_MIN_ALIGNMENT);
-    FreeListNodeHead* node = _fla_find_atleast_best_fit(allocator, size);
-    if (node == NULL) {
-        node = _fla_request_more_memory(allocator, size);
-        if (node == NULL) {
+    if (size < FLA_MIN_ALLOCATION) {
+        size = FLA_MIN_ALLOCATION;
+    }
+    FreeListNodeHead* head = _fla_find_atleast_best_fit(allocator, size);
+    if (head == NULL) {
+        head = _fla_request_more_memory(allocator, size);
+        if (head == NULL) {
             return NULL;
         }
     }
-    assert(node->size >= size);
-    if (node->size >= size + _FLA_NODE_MARGIN + FLA_MIN_ALLOCATION) {
-        size_t total_size = node->size;
+    assert(head->size >= size);
+    FreeListFreeNode* node = _fla_get_free_node(head);
+    _fla_free_list_remove(allocator, node);
+    if (head->size >= size + _FLA_NODE_MARGIN + FLA_MIN_ALLOCATION) {
+        size_t total_size = head->size;
         
-        _fla_new_node(node, size, 0);
+        _fla_new_node(allocator, head, size, 0);
 
-        FreeListNodeHead* next = _fla_get_next_node_head(allocator, node);
+        FreeListNodeHead* next = _fla_get_next_node_head(allocator, head);
         assert(next != NULL);
-        _fla_new_node(next, total_size - size - _FLA_NODE_MARGIN, 1);
+        _fla_new_node(allocator, next, total_size - size - _FLA_NODE_MARGIN, 1);
     }
     else {
-        node->is_free = 0;
+        head->is_free = 0;
     }
-    return _fla_get_memory_ptr(node);
+    return _fla_get_memory_ptr(head);
 }
 
 void fla_free(FreeListAllocator* allocator, void* ptr) {
@@ -246,19 +333,22 @@ void fla_free(FreeListAllocator* allocator, void* ptr) {
     
     void* start = head;
     size_t size = head->size;
-
     FreeListNodeHead* prev = _fla_get_previous_node_head(allocator, head);
     if (prev != NULL && prev->is_free) {
+        FreeListFreeNode* prev_node = _fla_get_free_node(prev);
+        _fla_free_list_remove(allocator, prev_node);
         start = prev;
         size += prev->size + _FLA_NODE_MARGIN;
     }
 
     FreeListNodeHead* next = _fla_get_next_node_head(allocator, head);
     if (next != NULL && next->is_free) {
+        FreeListFreeNode* next_node = _fla_get_free_node(next);
+        _fla_free_list_remove(allocator, next_node);
         size += next->size + _FLA_NODE_MARGIN;
     }
 
-    _fla_new_node(start, size, 1);
+    _fla_new_node(allocator, start, size, 1);
 }
 void fla_dump_nodes(FreeListAllocator* allocator) {
     FreeListNodeHead* current = _fla_get_first_head(allocator);
@@ -267,7 +357,12 @@ void fla_dump_nodes(FreeListAllocator* allocator) {
     }
     char* end = (char*)allocator->memory + allocator->size;
     while (1) {
-        printf("%p: size: %zu, total size: %zu, free: %d\n", (void*)current, current->size, current->size + _FLA_NODE_MARGIN, current->is_free);
+        printf("%p: size: %zu, total size: %zu, free: %d", (void*)current, current->size, current->size + _FLA_NODE_MARGIN, current->is_free);
+        if (current->is_free) {
+            FreeListFreeNode* node = _fla_get_free_node(current);
+            printf(" (next: %p)", (void*)node->next);
+        }
+        printf("\n");
         char* next_address = (char*)current + current->size + _FLA_NODE_MARGIN;
         if (end <= next_address) {
             break;
